@@ -1,0 +1,21 @@
+# macOS
+.DS_Store
+
+# trash
+/Варианты архитектуры/
+
+# Environment variables
+.env
+
+# Data directory
+/data/
+
+# Logs directory
+/logs/
+
+# Python cache
+__pycache__/
+*.pyc
+*.tar
+*.tar.gz
+

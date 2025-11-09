@@ -1,0 +1,28 @@
+version: '3.8'
+
+services:
+  app:
+    # Собрать образ из Dockerfile в текущей директории
+    build: .
+    # Название контейнера для удобства
+    container_name: consilium_app
+    # Политика перезапуска
+    restart: unless-stopped
+    # Проброс портов: порт <хоста>:<порт контейнера>
+    ports:
+      - "8501:8501"
+    # Монтирование тома для персистентности данных SQLite и логов
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+    # Подключение файла с переменными окружения
+    # Если .env файл не существует, создайте его с переменными:
+    # DEEPSEEK_API_KEY=your_key_here
+    # или
+    # OPENAI_API_KEY=your_key_here
+    env_file:
+      - .env
+    # Альтернативно, можно передать переменные напрямую через environment:
+    # environment:
+    #   - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY}
+    #   - OPENAI_API_KEY=${OPENAI_API_KEY}
