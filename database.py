@@ -13,6 +13,7 @@
 
 import sqlite3
 import json
+import uuid
 from typing import Optional, List
 from config import DB_PATH
 from db_schema import init_db
@@ -65,9 +66,26 @@ def create_chat(title: str) -> int:
     """
     with get_db_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute("INSERT INTO chats (title) VALUES (?)", (title,))
+        chat_uuid = str(uuid.uuid4())
+        cursor.execute("INSERT INTO chats (uuid, title) VALUES (?, ?)", (chat_uuid, title))
         conn.commit()
         return cursor.lastrowid
+
+
+def get_chat_uuid(chat_id: int) -> Optional[str]:
+    """
+    Получает UUID чата по его ID.
+    
+    Args:
+        chat_id: ID чата
+    
+    Returns:
+        Optional[str]: UUID чата или None, если чат не найден
+    """
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        result = cursor.execute("SELECT uuid FROM chats WHERE id = ?", (chat_id,)).fetchone()
+        return result[0] if result else None
 
 
 def get_messages(chat_id: int) -> List[sqlite3.Row]:

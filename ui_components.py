@@ -48,11 +48,11 @@ def render_sidebar():
     """
     with st.sidebar:
         st.title("Consilium")
-        st.markdown("---")
+        st.divider()
         
         # Кнопка создания нового конспекта
         if st.button("➕ Новый конспект"):
-            st.session_state.clear()
+            st.session_state.messages = []
             st.rerun()
 
         # Загрузчик файлов для контекста
@@ -69,8 +69,8 @@ def render_sidebar():
 
         st.divider()
         
-        # История чатов
-        st.header("История чатов")
+        # История конспектов
+        st.subheader("История конспектов")
         chats = get_chats()
         if not chats:
             st.caption("История пока пуста.")
@@ -78,7 +78,7 @@ def render_sidebar():
             # Отображаем каждый чат как кнопку
             for chat in chats:
                 if st.button(
-                    f"📄 {chat['title']}",
+                    f"{chat['title']}",
                     key=f"chat_{chat['id']}",
                     use_container_width=True
                 ):
@@ -96,7 +96,7 @@ def render_messages():
     """
     for msg in st.session_state.messages:
         # Выбираем аватар в зависимости от автора
-        avatar = "🧑‍💻" if msg['author'] == 'user' else "🤖"
+        avatar = "👤" if msg['author'] == 'user' else "🤖"
         
         with st.chat_message(msg['author'], avatar=avatar):
             st.markdown(msg['content'])

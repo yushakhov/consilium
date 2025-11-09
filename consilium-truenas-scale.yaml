@@ -1,0 +1,129 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: consilium-app
+  labels:
+    app: consilium
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: consilium
+  template:
+    metadata:
+      labels:
+        app: consilium
+    spec:
+      containers:
+      - name: consilium-app
+        image: ghcr.io/yushakhov/consilium:latest
+        # Если образ не собран, можно использовать локальную сборку:
+        # image: consilium:latest
+        # imagePullPolicy: Never
+        ports:
+        - containerPort: 8501
+          name: streamlit
+        env:
+        - name: STREAMLIT_SERVER_PORT
+          value: "8501"
+        - name: STREAMLIT_SERVER_ADDRESS
+          value: "0.0.0.0"
+        # Переменные окружения для API ключей
+        - name: DEEPSEEK_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: consilium-secrets
+              key: deepseek-api-key
+        - name: OPENAI_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: consilium-secrets
+              key: openai-api-key
+        volumeMounts:
+        - name: data-volume
+          mountPath: /app/data
+          subPath: data
+        - name: logs-volume
+          mountPath: /app/logs
+          subPath: logs
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+          limits:
+            memory: "1Gi"
+            cpu: "500m"
+      volumes:
+      - name: data-volume
+        persistentVolumeClaim:
+          claimName: consilium-data-pvc
+      - name: logs-volume
+        persistentVolumeClaim:
+          claimName: consilium-logs-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: consilium-service
+spec:
+  selector:
+    app: consilium
+  ports:
+  - port: 8501
+    targetPort: 8501
+    name: streamlit
+  type: ClusterIP
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: consilium-data-pvc
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: consilium-logs-pvc
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: consilium-secrets
+type: Opaque
+data:
+  # Для создания секретов выполните:
+  # echo -n "your_deepseek_api_key" | base64
+  # echo -n "your_openai_api_key" | base64
+  deepseek-api-key: ""
+  openai-api-key: ""
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: consilium-ingress
+  annotations:
+    # Настройки для Traefik в TrueNAS Scale
+    traefik.ingress.kubernetes.io/router.entrypoints: web,websecure
+spec:
+  rules:
+  - host: consilium.local  # Замените на ваш домен
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: consilium-service
+            port:
+              number: 8501

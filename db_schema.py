@@ -29,11 +29,13 @@ def init_db():
         
         # Таблица чатов: хранит метаинформацию о каждой сессии
         # id - уникальный идентификатор чата
+        # uuid - уникальный идентификатор чата (для сквозного логирования)
         # title - заголовок чата (первые 50 символов запроса)
         # created_at - время создания (автоматически)
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS chats (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+                uuid TEXT UNIQUE NOT NULL,
                 title TEXT NOT NULL,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP
             )
@@ -60,4 +62,35 @@ def init_db():
         
         # Сохраняем изменения
         conn.commit()
+        
+        # Миграция: добавляем UUID для существующих чатов, если поле отсутствует
+        try:
+            cursor.execute("SELECT uuid FROM chats LIMIT 1")
+        except sqlite3.OperationalError:
+            # Поле uuid не существует, добавляем его
+            import uuid
+            cursor.execute("ALTER TABLE chats ADD COLUMN uuid TEXT")
+            # Генерируем UUID для всех существующих чатов
+            existing_chats = cursor.execute("SELECT id FROM chats WHERE uuid IS NULL").fetchall()
+            for (chat_id,) in existing_chats:
+                new_uuid = str(uuid.uuid4())
+                cursor.execute("UPDATE chats SET uuid = ? WHERE id = ?", (new_uuid, chat_id))
+            # Делаем поле обязательным и уникальным
+            conn.commit()
+            # SQLite не поддерживает ALTER COLUMN, поэтому создаем новую таблицу
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS chats_new (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    uuid TEXT UNIQUE NOT NULL,
+                    title TEXT NOT NULL,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            cursor.execute("""
+                INSERT INTO chats_new (id, uuid, title, created_at)
+                SELECT id, uuid, title, created_at FROM chats
+            """)
+            cursor.execute("DROP TABLE chats")
+            cursor.execute("ALTER TABLE chats_new RENAME TO chats")
+            conn.commit()
 

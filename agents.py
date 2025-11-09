@@ -10,7 +10,8 @@
 # Импортируем узлы из специализированных модулей
 from generator import generator_node
 from critic_editor import critic_node, editor_node
+from prompter import prompter_node
 
 # Экспортируем для использования в graph.py
-__all__ = ['generator_node', 'critic_node', 'editor_node']
+__all__ = ['prompter_node', 'generator_node', 'critic_node', 'editor_node']
 

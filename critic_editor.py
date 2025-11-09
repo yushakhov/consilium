@@ -60,15 +60,30 @@ def critic_node(state: AgentState) -> dict:
         )
         result = json.loads(cleaned_response)
         
+        # Преобразуем ключи из строк в числа для critiques_by_generator
+        critiques_by_generator = {}
+        if "critiques_by_generator" in result:
+            for key, value in result["critiques_by_generator"].items():
+                critiques_by_generator[int(key)] = value
+        
+        # Для обратной совместимости создаем старый формат critiques
+        # (объединяем все замечания в один список)
+        all_critiques = []
+        for gen_num, critiques in critiques_by_generator.items():
+            all_critiques.extend(critiques)
+        
         # Логируем успешный ответ критика
         log_agent_response(
             agent_type="critic",
+            log_filename=state["log_filename"],
             topic=state["topic"],
             iteration=iteration,
             response=response.content,
+            chat_uuid=state["chat_uuid"],
             metadata={
                 "parsed_successfully": True,
-                "critiques_count": len(result.get("critiques", [])),
+                "critiques_by_generator": critiques_by_generator,
+                "critiques_count": len(all_critiques),
                 "questions_count": len(result.get("questions_for_user", [])),
                 "parsed_result": result
             }
@@ -76,8 +91,10 @@ def critic_node(state: AgentState) -> dict:
         
         st.session_state.status.write("Критик вынес вердикт.")
         return {
-            "critiques": result.get("critiques", []),
-            "questions_for_user": result.get("questions_for_user", [])
+            "critiques": all_critiques,  # Для обратной совместимости
+            "critiques_by_generator": critiques_by_generator,  # Новая структура
+            "questions_for_user": result.get("questions_for_user", []),
+            "drafts_to_redo": result.get("drafts_to_redo", [])
         }
         
     except (json.JSONDecodeError, AttributeError) as e:
@@ -85,9 +102,11 @@ def critic_node(state: AgentState) -> dict:
         # но продолжаем работу, используя весь ответ как замечание
         log_agent_response(
             agent_type="critic",
+            log_filename=state["log_filename"],
             topic=state["topic"],
             iteration=iteration,
             response=response.content,
+            chat_uuid=state["chat_uuid"],
             metadata={
                 "parsed_successfully": False,
                 "error": str(e),
@@ -99,9 +118,12 @@ def critic_node(state: AgentState) -> dict:
             "Ошибка: Критик вернул некорректный ответ. Считаем, что критики нет."
         )
         # Используем весь ответ как одно замечание
+        # По умолчанию переделываем все черновики при ошибке парсинга
         return {
-            "critiques": [response.content],
-            "questions_for_user": []
+            "critiques": [response.content],  # Для обратной совместимости
+            "critiques_by_generator": {1: [response.content], 2: [response.content], 3: [response.content]},
+            "questions_for_user": [],
+            "drafts_to_redo": [1, 2, 3]
         }
 
 

@@ -16,51 +16,89 @@ def apply_custom_css():
     Настраивает:
     - Темный фон приложения
     - Стили для боковой панели
-    - Цвета текста и кнопок
+    - Стили сообщений чата
+    - Стили поля ввода
     - Отступы и границы
     """
     st.markdown("""
         <style>
-            /* Темная тема в стиле Deepseek */
+            /* Основная тема в стиле Deepseek */
             
-            /* Общие настройки тела страницы */
-            body {
-                color: #E0E0E0;
+            /* Главный контейнер */
+            .stApp {
+                background-color: #1a1a24;
             }
             
-            /* Основной фон приложения */
-            .stApp {
-                background-color: #1a1a24; /* Темно-сине-серый фон */
+            /* Заголовок */
+            .stTitle h1 {
+                color: #ffffff;
+                font-weight: 600;
+                margin-bottom: 1rem;
             }
 
-            /* Область основного контента */
+            /* Основной контент */
             .main .block-container {
                 padding-top: 2rem;
-                padding-bottom: 2rem;
-                padding-left: 5rem;
-                padding-right: 5rem;
+                padding-left: 3rem;
+                padding-right: 3rem;
             }
 
             /* Боковая панель */
             [data-testid="stSidebar"] {
-                background-color: #12121a; /* Еще более темный для боковой панели */
-                border-right: 1px solid #333344;
+                background-color: #12121a;
+            }
+            
+            /* Заголовок в боковой панели */
+            [data-testid="stSidebar"] h1 {
+                color: #ffffff;
+                font-size: 1.5rem;
+                font-weight: 600;
+            }
+            
+            /* Подзаголовок в боковой панели */
+            [data-testid="stSidebar"] h3 {
+                color: #a0a0a0;
+                font-size: 0.9rem;
+                font-weight: 500;
+                margin-top: 1rem;
             }
             
             /* Кнопки в боковой панели */
             [data-testid="stSidebar"] .stButton > button {
-                background-color: #2a2a38;
-                color: #E0E0E0;
-                border: 1px solid #444455;
-                border-radius: 0.5rem;
+                background-color: transparent;
+                color: #d0d0d0;
+                border: none;
+                border-radius: 0.25rem;
                 text-align: left;
-                padding: 0.5rem 1rem;
+                padding: 0.5rem 0.75rem;
+                font-size: 0.9rem;
+                width: 100%;
+                margin: 0.1rem 0;
             }
             
-            /* Эффект наведения на кнопки */
             [data-testid="stSidebar"] .stButton > button:hover {
-                background-color: #3b3b4f;
-                border-color: #555566;
+                background-color: #2a2a38;
+                color: #ffffff;
+            }
+            
+            /* Сообщения чата */
+            .stChatMessage {
+                padding: 1rem;
+                border-radius: 0.5rem;
+                margin: 0.5rem 0;
+            }
+            
+            /* Сообщения пользователя */
+            [data-testid="stChatMessage"] [data-testid="stMarkdownContainer"] {
+                color: #ffffff;
+            }
+            
+            /* Поле ввода */
+            .stChatInput .stTextInput textarea {
+                background-color: #2a2a38;
+                color: #ffffff;
+                border: 1px solid #444455;
+                border-radius: 0.5rem;
             }
             
             /* Заголовки в боковой панели */
@@ -68,6 +106,11 @@ def apply_custom_css():
             [data-testid="stSidebar"] h2, 
             [data-testid="stSidebar"] h3 {
                 color: #FFFFFF;
+            }
+            
+            /* Разделители */
+            .stDivider {
+                border-color: #333344;
             }
         </style>
     """, unsafe_allow_html=True)

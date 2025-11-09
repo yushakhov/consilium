@@ -18,11 +18,15 @@ class AgentState(TypedDict):
     topic: str                          # Тема конспекта
     file_content: Optional[str]         # Содержимое прикрепленного файла
     drafts: List[str]                   # Список черновиков от генераторов
-    critiques: List[str]                # Замечания критика
+    critiques: List[str]                # Замечания критика (устаревшее, для обратной совместимости)
+    critiques_by_generator: dict        # Замечания критика по генераторам: {1: [...], 2: [...], 3: [...]}
     questions_for_user: List[str]       # Вопросы к пользователю
     user_response: Optional[str]        # Ответ пользователя на вопросы
     final_summary: Optional[str]        # Финальный конспект от редактора
     iteration_count: int                # Счетчик итераций улучшения
+    drafts_to_redo: List[int]           # Номера черновиков для переделки (1, 2, 3)
+    log_filename: str                   # Имя файла лога для текущего запуска
+    chat_uuid: str                      # UUID чата для сквозного логирования
 
 
 def decide_next_step(state: AgentState) -> str:
@@ -61,8 +65,14 @@ def decide_next_step(state: AgentState) -> str:
         return "editor"
     
     # Приоритет 3: Если есть замечания, отправляем на доработку
+    drafts_to_redo = state.get("drafts_to_redo", [])
     if state.get("critiques"):
-        st.session_state.status.write("Черновики отправлены на доработку.")
+        if drafts_to_redo:
+            st.session_state.status.write(
+                f"Черновики {drafts_to_redo} отправлены на доработку."
+            )
+        else:
+            st.session_state.status.write("Черновики отправлены на доработку.")
         return "generator"
     
     # Приоритет 4: Если замечаний нет, черновики одобрены - к редактору

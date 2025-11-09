@@ -13,8 +13,9 @@ import streamlit as st
 from langgraph.graph import StateGraph, END
 
 # Импортируем узлы через модуль-обертку agents.py
-from agents import generator_node, critic_node, editor_node
+from agents import prompter_node, generator_node, critic_node, editor_node
 from decision import AgentState, decide_next_step
+from prompter import decide_after_prompter
 from config import GRAPH_RECURSION_LIMIT
 
 
@@ -24,7 +25,9 @@ def build_graph():
     Строит и компилирует граф агентов.
     
     Структура графа:
-        1. generator (входная точка)
+        1. prompter (входная точка)
+           ↓
+        2. generator
            ↓
         2. critic
            ↓
@@ -47,18 +50,29 @@ def build_graph():
     
     # Добавляем узлы графа
     # Каждый узел - это функция, которая принимает состояние и возвращает обновления
+    workflow.add_node("prompter", prompter_node)     # Промптер для валидации запроса
     workflow.add_node("generator", generator_node)  # Генератор черновиков
     workflow.add_node("critic", critic_node)         # Критик
     workflow.add_node("editor", editor_node)         # Редактор
     
     # Устанавливаем входную точку графа
-    # Все запросы начинаются с генератора
-    workflow.set_entry_point("generator")
+    # Все запросы начинаются с `prompter`
+    workflow.set_entry_point("prompter")
+    
+    # Добавляем условное ребро от `prompter`
+    workflow.add_conditional_edges(
+        "prompter",
+        decide_after_prompter,
+        {
+            "ask_user": END,        # Если нужны уточнения по промпту - ждем пользователя
+            "generator": "generator" # Если промпт хороший - идем к генераторам
+        }
+    )
     
     # Добавляем обычное ребро: генератор всегда идет к критику
     workflow.add_edge("generator", "critic")
     
-    # Добавляем условное ребро от критика
+    # Добавляем условное ребро от критика для основного цикла доработки
     # decide_next_step определяет, куда идти дальше
     workflow.add_conditional_edges(
         "critic",

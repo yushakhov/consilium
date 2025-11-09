@@ -7,7 +7,8 @@
 """
 
 import streamlit as st
-from database import create_chat, add_message
+from datetime import datetime
+from database import create_chat, add_message, get_chat_uuid
 from graph import graph_app
 from config import GRAPH_RECURSION_LIMIT
 
@@ -30,6 +31,13 @@ def process_user_input(prompt: str, file_content: str):
     # Создаем новый чат, если его еще нет
     if not st.session_state.chat_id:
         st.session_state.chat_id = create_chat(prompt[:50])
+    
+    # Получаем UUID чата
+    chat_uuid = get_chat_uuid(st.session_state.chat_id)
+    if not chat_uuid:
+        # Если UUID не найден (старая БД), создаем новый чат
+        st.session_state.chat_id = create_chat(prompt[:50])
+        chat_uuid = get_chat_uuid(st.session_state.chat_id)
     
     # Сохраняем сообщение пользователя в БД
     add_message(st.session_state.chat_id, 'user', prompt)
@@ -56,17 +64,34 @@ def process_user_input(prompt: str, file_content: str):
             # Продолжение: используем сохраненное состояние
             graph_input = st.session_state.current_graph_state
             graph_input["user_response"] = prompt
+            # Убеждаемся, что UUID присутствует
+            if "chat_uuid" not in graph_input:
+                graph_input["chat_uuid"] = chat_uuid
         else:
             # Новый запрос: создаем новое состояние
+            timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+            safe_topic = "".join(
+                c for c in prompt[:50]
+                if c.isalnum() or c in (' ', '-', '_')
+            ).strip().replace(" ", "_")
+            
+            if not safe_topic:
+                safe_topic = "new_request"
+            log_filename = f"{timestamp}_{safe_topic}.log"
+
             graph_input = {
                 "topic": prompt,
                 "file_content": file_content,
                 "drafts": [],
                 "critiques": [],
+                "critiques_by_generator": {},
                 "questions_for_user": [],
                 "user_response": None,
                 "final_summary": None,
                 "iteration_count": 0,
+                "drafts_to_redo": [],
+                "log_filename": log_filename,
+                "chat_uuid": chat_uuid
             }
         
         # Запускаем граф агентов
