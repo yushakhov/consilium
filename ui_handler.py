@@ -82,7 +82,7 @@ def process_user_input(prompt: str, file_content: str):
             graph_input = {
                 "topic": prompt,
                 "file_content": file_content,
-                "drafts": [],
+                "drafts": ["", "", ""],
                 "critiques": [],
                 "critiques_by_generator": {},
                 "questions_for_user": [],

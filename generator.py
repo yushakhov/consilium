@@ -7,9 +7,8 @@
 """
 
 import streamlit as st
-import uuid
 from typing import Dict, List
-from langchain_core.runnables import RunnableParallel, RunnableLambda
+from langchain_core.messages import AIMessage, HumanMessage
 
 from llm_setup import get_llm_for_generator, generator_prompt_template
 from agent_logging import log_agent_response
@@ -19,7 +18,7 @@ from decision import AgentState
 
 # Глобальное хранилище сессий чата для генераторов
 # Структура: {chat_uuid: {generator_num: [messages]}}
-_chat_sessions: Dict[str, Dict[int, List]] = {}
+_chat_sessions: Dict[str, Dict[int, List[AIMessage | HumanMessage]]] = {}
 
 
 def _get_chat_session(chat_uuid: str, generator_num: int) -> List:
@@ -31,54 +30,6 @@ def _get_chat_session(chat_uuid: str, generator_num: int) -> List:
     return _chat_sessions[chat_uuid][generator_num]
 
 
-def _create_generator_chain(style: str, generator_num: int, chat_uuid: str, state: dict):
-    """Создает цепочку для одного генератора с поддержкой сессии чата."""
-    llm = get_llm_for_generator(generator_num)
-    
-    def prepare_input(_):
-        """Подготавливает входные данные с учетом сессии чата."""
-        session = _get_chat_session(chat_uuid, generator_num)
-        
-        # Если сессия пустая (первый вызов), создаем системный промпт
-        if not session:
-            base_input = {
-                "topic": state["topic"],
-                "style_description": style,
-                "file_content": state.get("file_content", "Нет"),
-                "critiques": "Нет замечаний.",
-                "user_response": state.get("user_response", "Нет")
-            }
-            # Для первого вызова используем полный промпт
-            return base_input
-        else:
-            # Для последующих вызовов отправляем только замечания критика
-            critiques = state.get("critiques_by_generator", {}).get(generator_num, [])
-            critiques_text = "\n".join(critiques) if critiques else "Нет замечаний."
-            
-            # Формируем компактное сообщение с замечаниями
-            return {
-                "topic": state["topic"],
-                "style_description": style,
-                "file_content": "Нет",  # Не пересылаем файл в последующих итерациях
-                "critiques": critiques_text,
-                "user_response": "Нет"  # Ответ пользователя уже учтен в сессии
-            }
-    
-    def process_response(response):
-        """Обрабатывает ответ и обновляет сессию чата."""
-        session = _get_chat_session(chat_uuid, generator_num)
-        
-        # Добавляем ответ в сессию
-        session.append({
-            "role": "assistant", 
-            "content": response.content
-        })
-        
-        return response
-    
-    return RunnableLambda(prepare_input) | generator_prompt_template | llm | RunnableLambda(process_response)
-
-
 def _cleanup_chat_sessions():
     """Очищает старые сессии чата для предотвращения утечек памяти."""
     global _chat_sessions
@@ -88,156 +39,120 @@ def _cleanup_chat_sessions():
 
 def generator_node(state: AgentState) -> dict:
     """
-    Узел генератора: создает три черновика конспекта параллельно.
-    
-    Если есть drafts_to_redo, переделывает только указанные черновики,
-    остальные сохраняет из предыдущего состояния.
-    
-    Важно: генераторы работают в рамках сессий чата для сохранения контекста
-    и избежания перерасхода токенов.
-    
-    Три генератора работают одновременно, каждый в своем стиле:
-    1. Структурный план с тезисами
-    2. Подробное повествование
-    3. Фокус на примерах и аналогиях
+    Узел генератора: создает или обновляет черновики конспекта.
     
     Args:
-        state: Текущее состояние графа с темой, файлом, критикой и т.д.
-    
-    Note:
-        Каждый генератор поддерживает свою сессию чата с LLM в рамках одного chat_uuid.
-        Это позволяет не пересылать историю переписки при каждом обращении.
+        state: Текущее состояние графа.
     
     Returns:
-        dict: Обновленное состояние с новыми черновиками и счетчиком итераций
-    
-    Process:
-        1. Определяет, какие черновики нужно переделать
-        2. Подготавливает входные данные для генераторов
-        3. Запускает только нужные генераторы параллельно через RunnableParallel
-        4. Сохраняет существующие черновики, которые не требуют переделки
-        5. Обрабатывает результаты и логирует ответы каждого генератора
-        6. Возвращает обновленное состояние с черновиками
+        dict: Обновленное состояние с новыми черновиками и счетчиком итераций.
     """
     st.session_state.status.write("Генераторы готовят черновики...")
     
     chat_uuid = state["chat_uuid"]
-    
-    # Увеличиваем счетчик итераций
     iteration = state.get("iteration_count", 0) + 1
     
-    # Определяем, какие черновики нужно переделать
     drafts_to_redo = state.get("drafts_to_redo", [])
-    
-    # Если список пуст или это первая итерация, переделываем все
     if not drafts_to_redo or iteration == 1:
         drafts_to_redo = [1, 2, 3]
-        st.session_state.status.write("Переделываем все черновики...")
+        st.session_state.status.write("Генераторы создают черновики...")
     else:
-        st.session_state.status.write(
-            f"Переделываем только черновики: {drafts_to_redo}"
-        )
-    
-    # Сохраняем существующие черновики
-    existing_drafts = state.get("drafts", [None, None, None])
-    
-    # Создаем цепочки для генераторов с поддержкой сессий
-    generator_nums = {"draft_1": 1, "draft_2": 2, "draft_3": 3}
-    chains_to_run = {}
-    
-    for key, gen_num in generator_nums.items():
-        if gen_num in drafts_to_redo:
-            chains_to_run[key] = _create_generator_chain(
-                GENERATOR_STYLES[key], 
-                gen_num,
-                chat_uuid,
-                state
-            )
-    
-    # Запускаем только нужные генераторы параллельно
-    if chains_to_run:
-        try:
-            map_chain = RunnableParallel(**chains_to_run)
-            results = map_chain.invoke({})
-        except Exception as e:
-            st.session_state.status.write(f"Ошибка в генераторах: {e}")
-            # В случае ошибки очищаем сессии и пробуем снова
-            if chat_uuid in _chat_sessions:
-                del _chat_sessions[chat_uuid]
-            # Повторяем попытку
-            for key, gen_num in generator_nums.items():
-                if gen_num in drafts_to_redo:
-                    chains_to_run[key] = _create_generator_chain(
-                        GENERATOR_STYLES[key], 
-                        gen_num,
-                        chat_uuid,
-                        state
-                    )
-            map_chain = RunnableParallel(**chains_to_run)
-            results = map_chain.invoke({})
+        st.session_state.status.write(f"Генераторы дорабатывают черновики: {drafts_to_redo}")
+
+    # Нормализуем список черновиков до фиксированной длины 3
+    drafts_state = state.get("drafts")
+    if not drafts_state:
+        new_drafts = ["", "", ""]
+    elif len(drafts_state) < 3:
+        new_drafts = (drafts_state + ["", "", ""])[:3]
     else:
-        results = {}
-    
-    # Обновляем сессии с запросами (добавляем human message для контекста)
+        new_drafts = drafts_state[:]  # Копируем, чтобы изменять
+
+    # Обрабатываем каждый генератор, который требует доработки
     for gen_num in drafts_to_redo:
-        session = _get_chat_session(chat_uuid, gen_num)
-        if session:  # Если сессия уже существует, добавляем запрос
-            session.append({"role": "user", "content": "Получены замечания критика. Исправь черновик."})
-    
-    # Формируем финальный список черновиков
-    drafts = []
-    for i in range(3):
-        draft_index = i + 1  # 1, 2, 3
-        key = f"draft_{draft_index}"
+        st.session_state.status.write(f"Генератор {gen_num} работает...")
         
-        if draft_index in drafts_to_redo and key in results:
-            # Получаем сессию для логирования
-            session = _get_chat_session(chat_uuid, draft_index)
-            
-            # Используем новый черновик
-            message = results[key]
-            drafts.append(message.content)
-            
-            # Логируем ответ генератора
-            log_agent_response(
-                agent_type=f"generator_{draft_index}",
-                log_filename=state["log_filename"],
-                topic=state["topic"],
-                iteration=iteration,
-                response=message.content,
-                chat_uuid=state["chat_uuid"],
-                metadata={
-                    "style": GENERATOR_STYLES[key],
-                    "has_file_content": bool(state.get("file_content")),
-                    "has_critiques": bool(state.get("critiques")),
-                    "has_user_response": bool(state.get("user_response")),
-                    "redone": True,
-                    "session_length": len(session)
-                }
-            )
-            st.session_state.status.write(
-                f"Генератор {draft_index} получил ответ (переделан)..."
-            )
+        # Защита от некорректных номеров генераторов
+        if not (1 <= gen_num <= len(new_drafts)):
+            st.session_state.status.write(f"Пропуск генератора {gen_num}: некорректный номер")
+            continue
+        
+        session = _get_chat_session(chat_uuid, gen_num)
+        llm = get_llm_for_generator(gen_num)
+        key = f"draft_{gen_num}"
+        style = GENERATOR_STYLES[key]
+
+        is_first_call = not session
+
+        if is_first_call:
+            # Первый вызов: создаем черновик с нуля
+            prompt_input = {
+                "topic": state["topic"],
+                "style_description": style,
+                "file_content": state.get("file_content", "Нет"),
+                "critiques": "Нет замечаний.",
+                "user_response": state.get("user_response", "Нет"),
+            }
+            human_message = HumanMessage(content=generator_prompt_template.format(**prompt_input))
+            messages_to_send = [human_message]
         else:
-            # Сохраняем существующий черновик
-            if i < len(existing_drafts) and existing_drafts[i]:
-                drafts.append(existing_drafts[i])
-                st.session_state.status.write(
-                    f"Генератор {draft_index} - черновик сохранен (не требует доработки)"
-                )
-            else:
-                # Если черновика нет (первая итерация), создаем пустой
-                drafts.append("")
-    
+            # Последующие вызовы: отправляем замечания для исправления
+            critiques = state.get("critiques_by_generator", {}).get(gen_num, [])
+            critiques_text = "\n".join(critiques)
+            
+            content = (
+                "Получены замечания от критика. Пожалуйста, исправь свой предыдущий ответ, "
+                "учитывая эти замечания, и верни полный обновленный текст конспекта.\n"
+                "Не добавляй никаких вступлений или комментариев, только сам текст.\n\n"
+                f"Замечания:\n{critiques_text}"
+            )
+            human_message = HumanMessage(content=content)
+            # Отправляем всю историю + новый запрос
+            messages_to_send = session + [human_message]
+
+        try:
+            # Вызов LLM с полной историей сообщений
+            response = llm.invoke(messages_to_send)
+            new_draft = response.content
+            
+            # Обновляем сессию
+            session.append(messages_to_send[-1]) # human_message
+            session.append(response) # AIMessage
+
+        except Exception as e:
+            st.session_state.status.write(f"Ошибка у Генератора {gen_num}: {e}")
+            # В случае ошибки, чтобы не сломать флоу, возвращаем старый черновик
+            new_draft = new_drafts[gen_num - 1]
+            if chat_uuid in _chat_sessions and gen_num in _chat_sessions[chat_uuid]:
+                del _chat_sessions[chat_uuid][gen_num] # Сбрасываем сессию при ошибке
+
+        # Сохраняем результат
+        new_drafts[gen_num - 1] = new_draft
+
+        # Логирование
+        log_agent_response(
+            agent_type=f"generator_{gen_num}",
+            log_filename=state["log_filename"],
+            topic=state["topic"],
+            iteration=iteration,
+            response=new_draft,
+            chat_uuid=chat_uuid,
+            metadata={
+                "style": style,
+                "has_file_content": bool(state.get("file_content")) and is_first_call,
+                "has_critiques": not is_first_call,
+                "redone": True,
+                "session_length": len(session),
+            },
+        )
+        st.session_state.status.write(f"Генератор {gen_num} завершил работу.")
+
     st.session_state.status.write("Все генераторы завершили работу.")
-    
-    # Очищаем старые сессии
     _cleanup_chat_sessions()
     
-    # Возвращаем обновленное состояние
     return {
-        "drafts": drafts,
-        "user_response": None,  # Сбрасываем ответ пользователя после использования
+        "drafts": new_drafts,
+        "user_response": None,
         "iteration_count": iteration,
-        "drafts_to_redo": []  # Сбрасываем после использования
+        "drafts_to_redo": [],
     }
